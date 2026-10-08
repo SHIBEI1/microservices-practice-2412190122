@@ -135,3 +135,21 @@
 ## 九、项目定位
 
 宠物医院管理系统具有明确的用户角色、完整的业务流程和清晰的服务边界，适合作为本学期持续演进的微服务课程项目。通过本项目可以逐步实践Java开发、Spring Boot、数据库、微服务通信、消息队列、权限控制、系统监控和容器化部署等课程内容。
+
+## 十、第三周工程运行说明
+
+### 环境要求
+
+- Java：JDK 25 或更高版本；本项目在 JDK 26 环境中验证。
+- Maven：Maven 3.9+。推荐使用项目附带的 Maven Wrapper（`./mvnw`）。
+
+### 工程位置
+
+本周 Spring Boot 工程位于 `monolith/pet-hospital`，应用名称为 `pet-hospital`。
+
+### 启动和测试命令
+
+```bash
+cd monolith/pet-hospital
+./mvnw spring-boot:run
+```
