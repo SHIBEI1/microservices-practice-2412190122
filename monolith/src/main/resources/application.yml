@@ -1,0 +1,23 @@
+server:
+  port: 8080
+
+spring:
+  config:
+    import: optional:file:./application-local.properties
+  application:
+    name: pet-hospital
+  datasource:
+    url: ${DB_URL:jdbc:mysql://localhost:3306/pet_hospital?connectionTimeZone=Asia/Shanghai&characterEncoding=UTF-8&sslMode=DISABLED&allowPublicKeyRetrieval=true}
+    username: ${DB_USERNAME:pet_hospital}
+    password: ${DB_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: update
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
