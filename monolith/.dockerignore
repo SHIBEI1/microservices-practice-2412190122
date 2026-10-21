@@ -1,0 +1,16 @@
+**
+!pom.xml
+!src/
+!src/**
+**/target/
+**/.idea/
+**/.vscode/
+**/.env
+**/.env.*
+**/application-local.*
+**/*Zone.Identifier*
+**/*.log
+**/*.pem
+**/*.key
+**/*.p12
+**/*.jks

@@ -344,3 +344,133 @@ cd monolith
 2026 年 10 月 15 日完整测试与随后的打包测试均通过，结果为 35 项测试、0 失败、0 错误、0 跳过，构建结果为 `BUILD SUCCESS`。另在真实 MySQL 上验证了 7 项 Repository 与约束测试，以及接口写入、并发冲突和应用重启后数据保留。
 
 连接配置参考 [MySQL Connector/J 文档](https://dev.mysql.com/doc/connector-j/en/connector-j-reference-jdbc-url-format.html)，本机外部配置使用 [Spring Boot 外部配置](https://docs.spring.io/spring-boot/reference/features/external-config.html)。
+
+## 十五、第五周容器化部署
+
+### 实现范围与环境要求
+
+本周沿用 `monolith/` 中的宠物医院 Spring Boot 单体工程，将应用和 MySQL 8.4.11 一起容器化。原有宠物、医生和预约业务不变，本周完成镜像构建、Compose 一键启动、容器内业务接口验证及命名卷持久化验证，尚未进行微服务拆分。
+
+容器化构建与运行只要求 Docker 和 Docker Compose，不依赖宿主机安装 Java、Maven 或 MySQL。Windows 环境使用 Docker Desktop 的 Linux 容器及 WSL 集成，以下命令在 WSL 或 Linux 的仓库根目录执行。
+
+| 文件 | 作用 |
+| --- | --- |
+| [monolith/Dockerfile](monolith/Dockerfile) | Maven 构建阶段与 JRE 运行阶段 |
+| [monolith/.dockerignore](monolith/.dockerignore) | 限制构建上下文，排除构建产物、IDE 配置和本机密码文件 |
+| [compose.yaml](compose.yaml) | 编排应用、数据库、健康检查、端口及命名卷 |
+| [.env.example](.env.example) | 本地环境变量模板，不包含真实密码 |
+
+### 环境变量配置
+
+首次运行时复制环境变量模板；已有 `.env` 时保留原配置：
+
+```bash
+test -f .env || cp .env.example .env
+```
+
+用文本编辑器将 `.env` 中 `MYSQL_PASSWORD` 和 `MYSQL_ROOT_PASSWORD` 的占位内容改为本机设置的不同密码。实际 `.env` 已加入 Git 忽略规则，不提交数据库密码。
+
+| 环境变量 | 模板值或用途 |
+| --- | --- |
+| `APP_PORT` | `8081`，应用映射到本机的端口 |
+| `MYSQL_DATABASE` | `pet_hospital` |
+| `MYSQL_USER` | `pet_hospital`，应用数据库账号 |
+| `MYSQL_PASSWORD` | 应用数据库账号密码 |
+| `MYSQL_ROOT_PASSWORD` | MySQL 管理员密码，应用不使用该账号 |
+
+Compose 将数据库地址、账号和密码分别注入应用的 `DB_URL`、`DB_USERNAME`、`DB_PASSWORD`。数据库地址使用服务名 `mysql:3306`，不使用容器内的 `localhost`。应用与数据库共享 Compose 默认网络，MySQL 不映射宿主机端口，因此不会占用本机已有的 MySQL 端口。
+
+MySQL 初始化账号和数据库的环境变量仅在数据卷为空时生效。已有数据卷应保持现有账号密码，单独修改 `.env` 不会自动修改数据库中的密码。
+
+### 镜像构建
+
+在仓库根目录执行：
+
+```bash
+docker build -t pet-hospital:week05 ./monolith
+docker image ls pet-hospital:week05
+```
+
+构建阶段使用 `maven:3.9.16-eclipse-temurin-25`，下载依赖并执行 `mvn -B -ntp verify`，完成测试和可执行 JAR 打包；运行阶段使用 `eclipse-temurin:25-jre`，仅从构建阶段复制应用 JAR，以非 root 用户 `app` 执行 `java -jar /app/app.jar`，不包含 Maven 和源码。
+
+`.dockerignore` 只放行 `pom.xml` 与 `src/`，并进一步排除本机构建产物、IDE 配置、密码文件及下载标记文件。首次构建不需要提前在宿主机执行 Maven；重复构建显示 `CACHED` 表示复用构建缓存。
+
+### 一键启动、状态与停止
+
+构建并启动应用及数据库，等待健康检查通过：
+
+```bash
+docker compose up -d --build --wait --wait-timeout 180
+```
+
+查看服务状态及日志：
+
+```bash
+docker compose ps
+docker compose logs --tail=100 app
+docker compose logs --tail=100 mysql
+```
+
+Compose 中的 `app` 依赖 `mysql` 的 `service_healthy` 状态。数据库健康检查验证应用账号能够连接业务数据库；应用健康检查访问 `/actuator/health`。正常启动后两个服务均显示 `healthy`。
+
+应用容器内部监听 `8080`，本机默认通过 `http://localhost:8081` 访问。该端口与本地开发方式使用的 `8080` 区分；如修改 `APP_PORT`，接口命令也应使用相应端口。
+
+停止并移除本项目容器与网络：
+
+```bash
+docker compose down
+```
+
+该命令保留数据库命名卷。日常停止和本周持久化验证均不使用 `docker compose down -v`，因为 `-v` 会删除命名卷及其中的数据库数据。
+
+### 健康检查与业务 API
+
+应用健康检查：
+
+```bash
+curl -i -w '\n' http://localhost:8081/actuator/health
+```
+
+正常返回 `200`，响应包含 `"status":"UP"`。
+
+创建宠物档案，正常返回 `201`、`Location` 和包含实际资源编号的 JSON：
+
+```bash
+curl -i -w '\n' -X POST http://localhost:8081/api/pets \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"团团","species":"猫","age":2,"ownerName":"孔磊","ownerPhone":"13800000000","healthNotes":"第五周Docker容器化验证"}'
+```
+
+查询宠物列表，正常返回 `200`，其中包含刚创建的宠物：
+
+```bash
+curl -i -w '\n' http://localhost:8081/api/pets
+```
+
+两个业务示例均可直接执行，不依赖预先存在的资源编号。宠物详情接口为 `GET /api/pets/{id}`，编号以创建响应为准；本周截图中的编号为 `3`，不是固定编号。
+
+### 容器重建与数据持久化
+
+MySQL 将 `/var/lib/mysql` 挂载到命名卷 `mysql_data`，当前 Compose 项目对应的实际卷名为 `pet-hospital_mysql_data`。卷与容器生命周期分离，移除容器后重新启动仍挂载原卷。
+
+在同一个终端中，先输入创建响应中的实际宠物编号：
+
+```bash
+read -rp 'Pet ID: ' PET_ID
+```
+
+查询原记录，删除并重新创建容器，再查询同一编号：
+
+```bash
+curl -i -w '\n' "http://localhost:8081/api/pets/$PET_ID"
+
+docker compose down
+docker compose up -d --wait --wait-timeout 180
+
+docker compose ps
+curl -i -w '\n' "http://localhost:8081/api/pets/$PET_ID"
+```
+
+本周验证中，宠物编号 `3` 在重建前后均返回 `200`，名称、种类、年龄、主人信息与健康备注保持一致，说明数据由命名卷中的 MySQL 保存，而非保存在应用或数据库容器的临时文件层中。
+
+2026 年 10 月 20 日首次镜像构建中的 35 项测试全部通过，后续重复构建、Compose 启动、接口访问和容器重建验证均成功。完整过程与八张运行截图见 [第五周作业记录](docs/homework/week-05/index.md)。

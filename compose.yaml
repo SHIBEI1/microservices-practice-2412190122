@@ -1,0 +1,50 @@
+name: pet-hospital
+
+services:
+  mysql:
+    image: mysql:8.4.11
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-pet_hospital}
+      MYSQL_USER: ${MYSQL_USER:-pet_hospital}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?请在根目录 .env 中设置 MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请在根目录 .env 中设置 MYSQL_ROOT_PASSWORD}
+      TZ: Asia/Shanghai
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          MYSQL_PWD="$${MYSQL_PASSWORD}" mysql --protocol=TCP
+          -h 127.0.0.1 -u "$${MYSQL_USER}" -D "$${MYSQL_DATABASE}"
+          --silent --skip-column-names -e 'SELECT 1' >/dev/null
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    restart: unless-stopped
+
+  app:
+    image: pet-hospital:week05
+    build:
+      context: ./monolith
+    ports:
+      - "127.0.0.1:${APP_PORT:-8081}:8080"
+    environment:
+      DB_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-pet_hospital}?connectionTimeZone=Asia/Shanghai&characterEncoding=UTF-8&sslMode=DISABLED&allowPublicKeyRetrieval=true
+      DB_USERNAME: ${MYSQL_USER:-pet_hospital}
+      DB_PASSWORD: ${MYSQL_PASSWORD:?请在根目录 .env 中设置 MYSQL_PASSWORD}
+      TZ: Asia/Shanghai
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/actuator/health | grep -q '\"status\":\"UP\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 45s
+    restart: unless-stopped
+
+volumes:
+  mysql_data:

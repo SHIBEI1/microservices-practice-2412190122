@@ -299,13 +299,13 @@ MySQL 8.4 上的 3 项 Repository 读写测试及 4 项数据库约束测试全�
 
 应用已正常连接 MySQL，业务表及其约束创建成功，运行结果截图如下：
 
-![09-MySQL表结构与数据](\\wsl.localhost\Ubuntu\home\konglei\microservice\microservices-practice-2412190122\docs\homework\week-04\screenshots\09-MySQL表结构与数据.png)
+![09-MySQL表结构与数据](screenshots/09-MySQL表结构与数据.png)
 
 #### 数据读写与重启验证
 
 通过接口写入数据后停止应用，再以同一 MySQL 数据库重新启动，原有宠物、预约及取消历史仍可查询。本次 MySQL 实测中，重启前后查询宠物编号 `15` 和预约编号 `20` 的内容保持一致，预约编号 `19` 的取消历史仍然保留。持久化验证成功，运行结果截图如下：
 
-![10-MySQL重启持久化验证](\\wsl.localhost\Ubuntu\home\konglei\microservice\microservices-practice-2412190122\docs\homework\week-04\screenshots\10-MySQL重启持久化验证.png)
+![10-MySQL重启持久化验证](screenshots/10-MySQL重启持久化验证.png)
 
 ## 测试与验证
 
@@ -360,19 +360,19 @@ cd monolith
 
 Repository 数据写入、重新读取、删除、关联查询及取消后重新预约测试通过，测试结果截图如下：
 
-![11-Repository测试通过](\\wsl.localhost\Ubuntu\home\konglei\microservice\microservices-practice-2412190122\docs\homework\week-04\screenshots\11-Repository测试通过.png)
+![11-Repository测试通过](screenshots/11-Repository测试通过.png)
 
 #### Service 和 API 验证
 
 Service 业务规则与 API 正常、错误响应测试通过，测试结果截图如下：
 
-![12-Service与API测试通过](\\wsl.localhost\Ubuntu\home\konglei\microservice\microservices-practice-2412190122\docs\homework\week-04\screenshots\12-Service与API测试通过.png)
+![12-Service与API测试通过](screenshots/12-Service与API测试通过.png)
 
 #### 完整测试结果
 
 全部 35 项测试通过，失败、错误和跳过均为 0，构建结果为 `BUILD SUCCESS`，完整测试结果截图如下：
 
-![13-完整测试通过](\\wsl.localhost\Ubuntu\home\konglei\microservice\microservices-practice-2412190122\docs\homework\week-04\screenshots\13-完整测试通过.png)
+![13-完整测试通过](screenshots/13-完整测试通过.png)
 
 
 
