@@ -1,3 +1,7 @@
 .env
 .env.*
 !.env.example
+services/**/target/
+services/**/.idea/
+services/**/*.iml
+services/**/application-local.properties

@@ -474,3 +474,100 @@ curl -i -w '\n' "http://localhost:8081/api/pets/$PET_ID"
 本周验证中，宠物编号 `3` 在重建前后均返回 `200`，名称、种类、年龄、主人信息与健康备注保持一致，说明数据由命名卷中的 MySQL 保存，而非保存在应用或数据库容器的临时文件层中。
 
 2026 年 10 月 20 日首次镜像构建中的 35 项测试全部通过，后续重复构建、Compose 启动、接口访问和容器重建验证均成功。完整过程与八张运行截图见 [第五周作业记录](docs/homework/week-05/index.md)。
+
+## 十六、第六周微服务拆分
+
+本周保留 `monolith/` 原单体，新增三个独立的 Spring Boot 工程，默认 Compose 编排切换为微服务。第十五节及第五周记录中的单体运行方式作为历史版本保留。服务边界、数据库归属及 Mermaid 架构图见 [微服务拆分设计](docs/microservices-design.md)。
+
+| 服务 | 工程目录 | 默认本机端口 | 数据库及账号 |
+| --- | --- | --- | --- |
+| `pet-service` | `services/pet-service/` | 18082 | `pet_hospital_pet` / `pet_user` |
+| `doctor-service` | `services/doctor-service/` | 18083 | `pet_hospital_doctor` / `doctor_user` |
+| `appointment-service` | `services/appointment-service/` | 18084 | `pet_hospital_appointment` / `appointment_user` |
+
+三个服务各有独立 `pom.xml`、`src/`、配置、测试和 Dockerfile，只读写各自数据库。预约保存远端宠物和医生的 ID，不建立跨库外键；创建预约时通过 RestTemplate 查询宠物和医生，再执行本地校验与保存。
+
+### 配置与一键启动
+
+在 WSL 或 Linux 的仓库根目录执行。首次使用先复制模板：
+
+```bash
+test -f .env || cp .env.example .env
+```
+
+已有 `.env` 时不覆盖第五周账号密码，补齐 `.env.example` 中新增的 `PET_*`、`DOCTOR_*`、`APPOINTMENT_*` 配置，并为三个服务设置不同的数据库密码。真实 `.env` 不提交，旧单体的账号、密码和 `mysql_data` 卷继续保留。
+
+容器内服务地址通过 `PET_SERVICE_URL`、`DOCTOR_SERVICE_URL` 覆盖，默认使用 `http://pet-service:8080`、`http://doctor-service:8080`；连接和读取超时通过 `HTTP_CONNECT_TIMEOUT`、`HTTP_READ_TIMEOUT` 设置，默认分别为 `2s`、`3s`。
+
+容器构建和运行不要求宿主机安装 Java、Maven 或额外 MySQL。Windows 使用 Docker Desktop 的 Linux 容器；WSL 已启用 Docker 集成时使用 `docker`，尚未启用集成但可以访问 Windows Docker CLI 时使用 `docker.exe`：
+
+```bash
+DOCKER_BIN=docker
+if ! docker compose version >/dev/null 2>&1; then
+  DOCKER_BIN=docker.exe
+fi
+
+"$DOCKER_BIN" compose up -d --build --wait --wait-timeout 240
+"$DOCKER_BIN" compose ps
+```
+
+默认启动三个应用和三个 MySQL 8.4.11 数据库容器。容器之间通过服务名通信，各数据库不映射宿主机端口，并使用各自命名卷保存数据。本机端口可以通过 `PET_SERVICE_PORT`、`DOCTOR_SERVICE_PORT`、`APPOINTMENT_SERVICE_PORT` 覆盖。
+
+查看日志和停止服务：
+
+```bash
+"$DOCKER_BIN" compose logs --tail=100 appointment-service
+"$DOCKER_BIN" compose stop
+```
+
+移除容器时使用不带 `-v` 的 `compose down`，保留所有数据库卷。原单体不属于默认启动范围，需要时可单独启动：
+
+```bash
+"$DOCKER_BIN" compose --profile monolith up -d --build app
+```
+
+### 健康接口与跨服务验证
+
+三个服务分别提供健康检查：
+
+```bash
+curl -i http://localhost:18082/actuator/health
+curl -i http://localhost:18083/actuator/health
+curl -i http://localhost:18084/actuator/health
+```
+
+从仓库根目录运行完整业务验证：
+
+```bash
+./scripts/smoke-test.sh
+```
+
+脚本需要 curl 和 Python 3，自动读取 Compose 中的端口，检查每个健康接口，创建宠物和医生，以实际 ID 提交未来预约，验证查询、冲突、确认、取消、取消后重新预约及依赖资源不存在时的失败响应。工号和预约日期自动生成，可以重复执行，不使用固定的历史 ID。
+
+追加真实依赖停机验证：
+
+```bash
+./scripts/smoke-test.sh --with-unavailable
+```
+
+该模式暂时停止本项目 `pet-service`，验证预约请求返回 `503`、本地预约数量不变，再恢复宠物服务；异常退出时也会尝试恢复服务。依赖资源不存在返回 `404`，连接或读取失败返回 `503`，无效远端响应返回 `502`，不会跳过校验继续写入。已有预约记录仍可独立查询。
+
+### 每个服务的测试命令
+
+测试使用 H2 内存数据库和固定时钟，无需启动 MySQL 或其他服务。使用已有 Maven Wrapper，在仓库根目录分别执行：
+
+```bash
+./monolith/mvnw -B -ntp -f services/pet-service/pom.xml test
+./monolith/mvnw -B -ntp -f services/doctor-service/pom.xml test
+./monolith/mvnw -B -ntp -f services/appointment-service/pom.xml test
+```
+
+Maven Wrapper 仅作为现有构建工具使用，三个服务并不依赖单体的业务代码。已安装 Maven 时，也可以进入任一服务目录执行 `mvn test`；宿主机测试需 JDK 25 或更高版本。
+
+当前宠物服务 4 项测试、医生服务 5 项测试、预约服务 15 项测试，共 24 项。测试覆盖上下文与健康接口、各自 Repository 读写、参数校验、业务规则、HTTP 依赖校验、超时和依赖失败不写入。Dockerfile 构建阶段同样执行测试后再打包。
+
+### 第六周作业记录
+
+[第 06 周作业记录](docs/homework/week-06/index.md) 汇总服务拆分设计、代码拆分、本地编排和验证四部分，记录启动与测试命令、跨服务预约流程、404 与 503 失败场景、本地数据变化及验证截图。
+
+2026 年 11 月 1 日验证中，三个微服务与各自 MySQL 数据库均健康运行，24 项独立测试全部通过。跨服务预约创建返回 `201`、查询返回 `200`，依赖资源不存在返回 `404`、依赖停机返回 `503`，两种失败场景下预约总数均保持为 `7`，依赖恢复后健康检查通过。

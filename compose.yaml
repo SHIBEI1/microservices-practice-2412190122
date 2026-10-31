@@ -2,12 +2,13 @@ name: pet-hospital
 
 services:
   mysql:
+    profiles: ["monolith"]
     image: mysql:8.4.11
     environment:
       MYSQL_DATABASE: ${MYSQL_DATABASE:-pet_hospital}
       MYSQL_USER: ${MYSQL_USER:-pet_hospital}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?请在根目录 .env 中设置 MYSQL_PASSWORD}
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请在根目录 .env 中设置 MYSQL_ROOT_PASSWORD}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?请设置 MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请设置 MYSQL_ROOT_PASSWORD}
       TZ: Asia/Shanghai
     volumes:
       - mysql_data:/var/lib/mysql
@@ -25,6 +26,7 @@ services:
     restart: unless-stopped
 
   app:
+    profiles: ["monolith"]
     image: pet-hospital:week05
     build:
       context: ./monolith
@@ -33,7 +35,7 @@ services:
     environment:
       DB_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-pet_hospital}?connectionTimeZone=Asia/Shanghai&characterEncoding=UTF-8&sslMode=DISABLED&allowPublicKeyRetrieval=true
       DB_USERNAME: ${MYSQL_USER:-pet_hospital}
-      DB_PASSWORD: ${MYSQL_PASSWORD:?请在根目录 .env 中设置 MYSQL_PASSWORD}
+      DB_PASSWORD: ${MYSQL_PASSWORD:?请设置 MYSQL_PASSWORD}
       TZ: Asia/Shanghai
     depends_on:
       mysql:
@@ -46,5 +48,163 @@ services:
       start_period: 45s
     restart: unless-stopped
 
+  pet-db:
+    image: mysql:8.4.11
+    environment:
+      MYSQL_DATABASE: ${PET_DATABASE:-pet_hospital_pet}
+      MYSQL_USER: ${PET_DB_USERNAME:-pet_user}
+      MYSQL_PASSWORD: ${PET_DB_PASSWORD:?请设置 PET_DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请设置 MYSQL_ROOT_PASSWORD}
+      TZ: Asia/Shanghai
+    volumes:
+      - pet_data:/var/lib/mysql
+    mem_limit: 512m
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          MYSQL_PWD="$${MYSQL_PASSWORD}" mysql --protocol=TCP
+          -h 127.0.0.1 -u "$${MYSQL_USER}" -D "$${MYSQL_DATABASE}"
+          --silent --skip-column-names -e 'SELECT 1' >/dev/null
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    restart: unless-stopped
+
+  pet-service:
+    image: pet-hospital-pet:week06
+    build:
+      context: ./services/pet-service
+    ports:
+      - "127.0.0.1:${PET_SERVICE_PORT:-18082}:8080"
+    environment:
+      SERVER_PORT: 8080
+      DB_URL: jdbc:mysql://pet-db:3306/${PET_DATABASE:-pet_hospital_pet}?connectionTimeZone=Asia/Shanghai&characterEncoding=UTF-8&sslMode=DISABLED&allowPublicKeyRetrieval=true
+      DB_USERNAME: ${PET_DB_USERNAME:-pet_user}
+      DB_PASSWORD: ${PET_DB_PASSWORD:?请设置 PET_DB_PASSWORD}
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=65.0 -XX:+ExitOnOutOfMemoryError
+      TZ: Asia/Shanghai
+    depends_on:
+      pet-db:
+        condition: service_healthy
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/actuator/health | grep -q '\"status\":\"UP\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 45s
+    restart: unless-stopped
+
+  doctor-db:
+    image: mysql:8.4.11
+    environment:
+      MYSQL_DATABASE: ${DOCTOR_DATABASE:-pet_hospital_doctor}
+      MYSQL_USER: ${DOCTOR_DB_USERNAME:-doctor_user}
+      MYSQL_PASSWORD: ${DOCTOR_DB_PASSWORD:?请设置 DOCTOR_DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请设置 MYSQL_ROOT_PASSWORD}
+      TZ: Asia/Shanghai
+    volumes:
+      - doctor_data:/var/lib/mysql
+    mem_limit: 512m
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          MYSQL_PWD="$${MYSQL_PASSWORD}" mysql --protocol=TCP
+          -h 127.0.0.1 -u "$${MYSQL_USER}" -D "$${MYSQL_DATABASE}"
+          --silent --skip-column-names -e 'SELECT 1' >/dev/null
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    restart: unless-stopped
+
+  doctor-service:
+    image: pet-hospital-doctor:week06
+    build:
+      context: ./services/doctor-service
+    ports:
+      - "127.0.0.1:${DOCTOR_SERVICE_PORT:-18083}:8080"
+    environment:
+      SERVER_PORT: 8080
+      DB_URL: jdbc:mysql://doctor-db:3306/${DOCTOR_DATABASE:-pet_hospital_doctor}?connectionTimeZone=Asia/Shanghai&characterEncoding=UTF-8&sslMode=DISABLED&allowPublicKeyRetrieval=true
+      DB_USERNAME: ${DOCTOR_DB_USERNAME:-doctor_user}
+      DB_PASSWORD: ${DOCTOR_DB_PASSWORD:?请设置 DOCTOR_DB_PASSWORD}
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=65.0 -XX:+ExitOnOutOfMemoryError
+      TZ: Asia/Shanghai
+    depends_on:
+      doctor-db:
+        condition: service_healthy
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/actuator/health | grep -q '\"status\":\"UP\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 45s
+    restart: unless-stopped
+
+  appointment-db:
+    image: mysql:8.4.11
+    environment:
+      MYSQL_DATABASE: ${APPOINTMENT_DATABASE:-pet_hospital_appointment}
+      MYSQL_USER: ${APPOINTMENT_DB_USERNAME:-appointment_user}
+      MYSQL_PASSWORD: ${APPOINTMENT_DB_PASSWORD:?请设置 APPOINTMENT_DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请设置 MYSQL_ROOT_PASSWORD}
+      TZ: Asia/Shanghai
+    volumes:
+      - appointment_data:/var/lib/mysql
+    mem_limit: 512m
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          MYSQL_PWD="$${MYSQL_PASSWORD}" mysql --protocol=TCP
+          -h 127.0.0.1 -u "$${MYSQL_USER}" -D "$${MYSQL_DATABASE}"
+          --silent --skip-column-names -e 'SELECT 1' >/dev/null
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    restart: unless-stopped
+
+  appointment-service:
+    image: pet-hospital-appointment:week06
+    build:
+      context: ./services/appointment-service
+    ports:
+      - "127.0.0.1:${APPOINTMENT_SERVICE_PORT:-18084}:8080"
+    environment:
+      SERVER_PORT: 8080
+      DB_URL: jdbc:mysql://appointment-db:3306/${APPOINTMENT_DATABASE:-pet_hospital_appointment}?connectionTimeZone=Asia/Shanghai&characterEncoding=UTF-8&sslMode=DISABLED&allowPublicKeyRetrieval=true
+      DB_USERNAME: ${APPOINTMENT_DB_USERNAME:-appointment_user}
+      DB_PASSWORD: ${APPOINTMENT_DB_PASSWORD:?请设置 APPOINTMENT_DB_PASSWORD}
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=65.0 -XX:+ExitOnOutOfMemoryError
+      TZ: Asia/Shanghai
+      PET_SERVICE_URL: ${PET_SERVICE_URL:-http://pet-service:8080}
+      DOCTOR_SERVICE_URL: ${DOCTOR_SERVICE_URL:-http://doctor-service:8080}
+      HTTP_CONNECT_TIMEOUT: ${HTTP_CONNECT_TIMEOUT:-2s}
+      HTTP_READ_TIMEOUT: ${HTTP_READ_TIMEOUT:-3s}
+    depends_on:
+      appointment-db:
+        condition: service_healthy
+      pet-service:
+        condition: service_healthy
+      doctor-service:
+        condition: service_healthy
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/actuator/health | grep -q '\"status\":\"UP\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 45s
+    restart: unless-stopped
+
 volumes:
   mysql_data:
+  pet_data:
+  doctor_data:
+  appointment_data:

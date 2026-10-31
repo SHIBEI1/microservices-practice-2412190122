@@ -1,0 +1,16 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:appointment-service-test;DB_CLOSE_DELAY=-1
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: create-drop
+
+clients:
+  pet-base-url: http://pet-service:8080
+  doctor-base-url: http://doctor-service:8080
+  connect-timeout: 2s
+  read-timeout: 3s
