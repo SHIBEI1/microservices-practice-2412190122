@@ -3,6 +3,14 @@ server:
 spring:
   application:
     name: doctor-service
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_SERVER_ADDR:localhost:18848}
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:}
+        namespace: ${NACOS_NAMESPACE:}
+        group: ${NACOS_GROUP:PET_HOSPITAL_GROUP}
   datasource:
     url: ${DB_URL:jdbc:mysql://localhost:3306/pet_hospital_doctor?connectionTimeZone=Asia/Shanghai&characterEncoding=UTF-8&sslMode=DISABLED&allowPublicKeyRetrieval=true}
     username: ${DB_USERNAME:doctor_user}

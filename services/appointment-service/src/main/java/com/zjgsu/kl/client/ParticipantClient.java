@@ -1,10 +1,15 @@
 package com.zjgsu.kl.client;
 
+import java.net.URI;
 import java.time.DayOfWeek;
 import java.time.LocalTime;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.zjgsu.kl.config.ClientProperties;
+import java.util.List;
 import com.zjgsu.kl.exception.BusinessException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.cloud.client.ServiceInstance;
+import org.springframework.cloud.client.discovery.DiscoveryClient;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
@@ -15,16 +20,17 @@ import org.springframework.web.client.RestTemplate;
 
 @Component
 public class ParticipantClient {
+    private static final Logger log = LoggerFactory.getLogger(ParticipantClient.class);
     private final RestTemplate restTemplate;
-    private final ClientProperties properties;
+    private final DiscoveryClient discoveryClient;
 
-    public ParticipantClient(RestTemplate restTemplate, ClientProperties properties) {
+    public ParticipantClient(RestTemplate restTemplate, DiscoveryClient discoveryClient) {
         this.restTemplate = restTemplate;
-        this.properties = properties;
+        this.discoveryClient = discoveryClient;
     }
 
     public RemotePet requirePet(Long id) {
-        RemotePet pet = fetch(properties.petBaseUrl() + "/api/pets/{id}", id, RemotePet.class, "宠物");
+        RemotePet pet = fetch("pet-service", "/api/pets/{id}", id, RemotePet.class, "宠物");
         if (pet == null || !id.equals(pet.id())) {
             throw invalidResponse("宠物");
         }
@@ -32,7 +38,7 @@ public class ParticipantClient {
     }
 
     public RemoteDoctor requireDoctor(Long id) {
-        RemoteDoctor doctor = fetch(properties.doctorBaseUrl() + "/api/doctors/{id}", id, RemoteDoctor.class, "医生");
+        RemoteDoctor doctor = fetch("doctor-service", "/api/doctors/{id}", id, RemoteDoctor.class, "医生");
         if (doctor == null || !id.equals(doctor.id()) || doctor.dayOfWeek() == null
                 || doctor.startTime() == null || doctor.endTime() == null || doctor.accepting() == null
                 || !doctor.startTime().isBefore(doctor.endTime())) {
@@ -41,7 +47,23 @@ public class ParticipantClient {
         return doctor;
     }
 
-    private <T> T fetch(String url, Long id, Class<T> type, String resource) {
+    private URI instanceUri(String serviceName, String resource) {
+        List<ServiceInstance> instances;
+        try {
+            instances = discoveryClient.getInstances(serviceName);
+        } catch (RuntimeException exception) {
+            throw new BusinessException(HttpStatus.SERVICE_UNAVAILABLE, resource + "服务发现失败，请稍后重试");
+        }
+        if (instances.isEmpty()) {
+            throw new BusinessException(HttpStatus.SERVICE_UNAVAILABLE, resource + "服务没有可用实例，请稍后重试");
+        }
+        URI uri = instances.getFirst().getUri();
+        log.info("Nacos服务发现 {} -> {}", serviceName, uri);
+        return uri;
+    }
+
+    private <T> T fetch(String serviceName, String path, Long id, Class<T> type, String resource) {
+        String url = instanceUri(serviceName, resource) + path;
         try {
             return restTemplate.getForObject(url, type, id);
         } catch (HttpClientErrorException.NotFound exception) {

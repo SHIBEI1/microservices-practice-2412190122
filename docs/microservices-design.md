@@ -1,5 +1,11 @@
 # 微服务拆分设计
 
+## 第七周工作
+
+宠物、医生和预约三个服务接入 Nacos `3.2.4`，服务名分别为 `pet-service`、`doctor-service`、`appointment-service`，命名空间为默认 `public`，分组为 `PET_HOSPITAL_GROUP`。预约服务通过 `DiscoveryClient` 每次获取当前实例，使用实例 URI 调用宠物和医生的原有业务 API。实例列表为空或依赖连接失败时返回 `503`，资源不存在时返回 `404`，失败校验在预约写入前终止。
+
+Nacos 控制台本机端口为 `28080`，Server HTTP 为 `18848`，SDK gRPC 为 `19848`。应用容器使用 `nacos:8848` 连接注册中心，数据由 `nacos_data` 命名卷保存。三个业务服务各自的数据归属延续第六周设计，详细运行过程与验证截图见 [第 07 周作业记录](homework/week-07/index.md)。
+
 ## 第六周工作与拆分范围
 
 本周在宠物医院管理系统的基础上，将已有宠物档案、医生排班和就诊预约拆分为三个独立 Spring Boot 服务。保留 `monolith/` 及原有数据库卷，单体工程不改名、不覆盖；新工程统一位于 `services/`，每个服务都有独立 `pom.xml`、`src/`、配置、测试和 Dockerfile。

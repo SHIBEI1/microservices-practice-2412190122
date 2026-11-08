@@ -1,6 +1,36 @@
 name: pet-hospital
 
 services:
+  nacos:
+    image: nacos/nacos-server:v3.2.4
+    environment:
+      MODE: standalone
+      PREFER_HOST_MODE: hostname
+      NACOS_AUTH_ENABLE: "true"
+      NACOS_AUTH_ADMIN_ENABLE: "true"
+      NACOS_AUTH_CONSOLE_ENABLE: "true"
+      NACOS_AUTH_TOKEN: ${NACOS_AUTH_TOKEN:?请设置 NACOS_AUTH_TOKEN}
+      NACOS_AUTH_IDENTITY_KEY: ${NACOS_AUTH_IDENTITY_KEY:?请设置 NACOS_AUTH_IDENTITY_KEY}
+      NACOS_AUTH_IDENTITY_VALUE: ${NACOS_AUTH_IDENTITY_VALUE:?请设置 NACOS_AUTH_IDENTITY_VALUE}
+      JVM_XMS: 256m
+      JVM_XMX: 512m
+      JVM_XMN: 128m
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:${NACOS_CONSOLE_PORT:-28080}:8080"
+      - "127.0.0.1:${NACOS_SERVER_PORT:-18848}:8848"
+      - "127.0.0.1:${NACOS_GRPC_PORT:-19848}:9848"
+    volumes:
+      - nacos_data:/home/nacos/data
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8848/nacos/v3/admin/core/state/readiness"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 45s
+    restart: unless-stopped
+
   mysql:
     profiles: ["monolith"]
     image: mysql:8.4.11
@@ -73,7 +103,7 @@ services:
     restart: unless-stopped
 
   pet-service:
-    image: pet-hospital-pet:week06
+    image: pet-hospital-pet:week07
     build:
       context: ./services/pet-service
     ports:
@@ -84,8 +114,15 @@ services:
       DB_USERNAME: ${PET_DB_USERNAME:-pet_user}
       DB_PASSWORD: ${PET_DB_PASSWORD:?请设置 PET_DB_PASSWORD}
       JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=65.0 -XX:+ExitOnOutOfMemoryError
+      NACOS_SERVER_ADDR: ${NACOS_SERVER_ADDR:-nacos:8848}
+      NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:?请设置 NACOS_PASSWORD}
+      NACOS_NAMESPACE: ${NACOS_NAMESPACE:-}
+      NACOS_GROUP: ${NACOS_GROUP:-PET_HOSPITAL_GROUP}
       TZ: Asia/Shanghai
     depends_on:
+      nacos:
+        condition: service_healthy
       pet-db:
         condition: service_healthy
     mem_limit: 512m
@@ -122,7 +159,7 @@ services:
     restart: unless-stopped
 
   doctor-service:
-    image: pet-hospital-doctor:week06
+    image: pet-hospital-doctor:week07
     build:
       context: ./services/doctor-service
     ports:
@@ -133,8 +170,15 @@ services:
       DB_USERNAME: ${DOCTOR_DB_USERNAME:-doctor_user}
       DB_PASSWORD: ${DOCTOR_DB_PASSWORD:?请设置 DOCTOR_DB_PASSWORD}
       JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=65.0 -XX:+ExitOnOutOfMemoryError
+      NACOS_SERVER_ADDR: ${NACOS_SERVER_ADDR:-nacos:8848}
+      NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:?请设置 NACOS_PASSWORD}
+      NACOS_NAMESPACE: ${NACOS_NAMESPACE:-}
+      NACOS_GROUP: ${NACOS_GROUP:-PET_HOSPITAL_GROUP}
       TZ: Asia/Shanghai
     depends_on:
+      nacos:
+        condition: service_healthy
       doctor-db:
         condition: service_healthy
     mem_limit: 512m
@@ -171,7 +215,7 @@ services:
     restart: unless-stopped
 
   appointment-service:
-    image: pet-hospital-appointment:week06
+    image: pet-hospital-appointment:week07
     build:
       context: ./services/appointment-service
     ports:
@@ -182,12 +226,17 @@ services:
       DB_USERNAME: ${APPOINTMENT_DB_USERNAME:-appointment_user}
       DB_PASSWORD: ${APPOINTMENT_DB_PASSWORD:?请设置 APPOINTMENT_DB_PASSWORD}
       JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=65.0 -XX:+ExitOnOutOfMemoryError
+      NACOS_SERVER_ADDR: ${NACOS_SERVER_ADDR:-nacos:8848}
+      NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:?请设置 NACOS_PASSWORD}
+      NACOS_NAMESPACE: ${NACOS_NAMESPACE:-}
+      NACOS_GROUP: ${NACOS_GROUP:-PET_HOSPITAL_GROUP}
       TZ: Asia/Shanghai
-      PET_SERVICE_URL: ${PET_SERVICE_URL:-http://pet-service:8080}
-      DOCTOR_SERVICE_URL: ${DOCTOR_SERVICE_URL:-http://doctor-service:8080}
       HTTP_CONNECT_TIMEOUT: ${HTTP_CONNECT_TIMEOUT:-2s}
       HTTP_READ_TIMEOUT: ${HTTP_READ_TIMEOUT:-3s}
     depends_on:
+      nacos:
+        condition: service_healthy
       appointment-db:
         condition: service_healthy
       pet-service:
@@ -204,6 +253,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  nacos_data:
   mysql_data:
   pet_data:
   doctor_data:

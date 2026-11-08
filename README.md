@@ -571,3 +571,146 @@ Maven Wrapper 仅作为现有构建工具使用，三个服务并不依赖单体
 [第 06 周作业记录](docs/homework/week-06/index.md) 汇总服务拆分设计、代码拆分、本地编排和验证四部分，记录启动与测试命令、跨服务预约流程、404 与 503 失败场景、本地数据变化及验证截图。
 
 2026 年 11 月 1 日验证中，三个微服务与各自 MySQL 数据库均健康运行，24 项独立测试全部通过。跨服务预约创建返回 `201`、查询返回 `200`，依赖资源不存在返回 `404`、依赖停机返回 `503`，两种失败场景下预约总数均保持为 `7`，依赖恢复后健康检查通过。
+
+
+## 十七、第七周 Nacos 服务发现
+
+### 依赖与运行配置
+
+三个业务服务使用 Spring Cloud `2025.1.0` 和 Spring Cloud Alibaba `2025.1.0.0` BOM 管理 Discovery Starter，基础工程使用 Spring Boot `4.0.8` 和 Java 25。预约业务通过 `DiscoveryClient.getInstances(...)` 获取当前已知实例，将实例 URI 与原业务路径组合后使用 RestTemplate 发起 HTTP 请求。每次参与方校验均重新获取实例列表，连接超时为 `2s`，读取超时为 `3s`。
+
+三个服务使用 `PET_HOSPITAL_GROUP` 分组，命名空间默认使用 `public`，对应 `NACOS_NAMESPACE` 留空。服务名沿用 [微服务拆分设计](docs/microservices-design.md)。
+
+| 服务名 | 本机端口 | 容器端口 |
+| --- | --- | --- |
+| `pet-service` | 18082 | 8080 |
+| `doctor-service` | 18083 | 8080 |
+| `appointment-service` | 18084 | 8080 |
+
+Nacos 使用作业指定镜像 `nacos/nacos-server:v3.2.4`，单机模式的数据目录挂载到 `nacos_data` 命名卷。控制台、服务端 HTTP 和 SDK gRPC 分别使用以下端口。
+
+| 用途 | 本机端口 | 容器端口 | 访问方式 |
+| --- | --- | --- | --- |
+| Nacos 控制台 | 28080 | 8080 | `http://localhost:28080/` |
+| Nacos Server HTTP | 18848 | 8848 | 本机 API 使用 `http://localhost:18848/nacos` |
+| Nacos SDK gRPC | 19848 | 9848 | SDK 通信，端口为 Server HTTP 端口加 1000 |
+
+端口均绑定宿主机 `127.0.0.1`。应用容器从环境变量读取 `NACOS_SERVER_ADDR=nacos:8848`，通过 Compose 网络连接注册中心。Nacos 中显示的实例 IP 与 `8080` 端口用于容器间 HTTP 请求，本机通过各应用映射端口访问业务接口。
+
+### 首次初始化与启动
+
+在 WSL 或 Linux 的仓库根目录执行。先启动 Docker Desktop 的 Linux 容器引擎，选择可用的 Docker CLI。
+
+```bash
+export DOCKER_BIN=docker
+if ! docker compose version >/dev/null 2>&1; then
+  export DOCKER_BIN=docker.exe
+fi
+
+test -f .env || cp .env.example .env
+```
+
+首次使用时按 `.env.example` 设置 MySQL 凭据及新增的 `NACOS_*` 配置。Nacos 管理员使用 `NACOS_USERNAME=nacos`，密码填写在 `NACOS_PASSWORD`。`NACOS_AUTH_TOKEN` 填写 Base64 编码的随机密钥，解码后至少 32 字节，Server identity 的 Key 和 Value 填写独立非空值。实际凭据保存在本地 `.env`，模板保留占位内容，Git 忽略规则覆盖真实环境文件。
+
+先单独启动 Nacos，等待其就绪，再初始化管理员密码。
+
+```bash
+"$DOCKER_BIN" compose up -d --wait --wait-timeout 180 nacos
+
+python3 scripts/nacos-admin.py init
+```
+
+初始化脚本从 Compose 解析后的环境读取本地密码，通过首次管理员初始化 API 设置密码并验证登录。重复执行时验证现有凭据，输出初始化或登录结果。密码与认证 Token 仅在进程内处理。
+
+初始化后构建并启动业务服务与数据库。
+
+```bash
+"$DOCKER_BIN" compose up -d --build --wait --wait-timeout 240
+
+"$DOCKER_BIN" compose ps
+```
+
+打开 `http://localhost:28080/`，使用本地 `.env` 中的 Nacos 账号密码登录，选择默认命名空间和 `PET_HOSPITAL_GROUP`，查看三个业务服务及实例 IP、端口、健康状态。根地址会跳转到 `/next/`，验证脚本检查重定向后的最终 HTTP 状态。
+
+日常启动可以直接执行上述完整 Compose 命令。Nacos 管理员数据保存在命名卷中。停止和移除容器分别使用以下命令，`down` 保留命名卷。
+
+```bash
+"$DOCKER_BIN" compose stop
+
+"$DOCKER_BIN" compose down
+```
+
+### 查看注册实例和业务调用
+
+从仓库根目录查看实际注册分组与实例。
+
+```bash
+python3 scripts/nacos-admin.py list
+```
+
+三个应用的健康接口仍使用各自映射端口。
+
+```bash
+curl -i http://localhost:18082/actuator/health
+curl -i http://localhost:18083/actuator/health
+curl -i http://localhost:18084/actuator/health
+```
+
+执行完整跨服务预约验证。
+
+```bash
+bash scripts/smoke-test.sh
+```
+
+脚本检查实际映射到 `28080` 的 Nacos 控制台 HTTP 地址、三个业务健康接口和三个服务的可用注册实例，然后创建宠物、医生和预约，验证查询、冲突、确认取消及依赖资源不存在时的 `404` 响应。任一检查失败时返回非零退出状态。
+
+查看预约服务实际选取的实例 URI。
+
+```bash
+"$DOCKER_BIN" compose logs --tail=100 appointment-service | grep 'Nacos服务发现'
+```
+
+### 下线、失败与恢复验证
+
+从仓库根目录执行下线与恢复验证。
+
+```bash
+bash scripts/smoke-test.sh --with-unavailable
+```
+
+脚本先完成正常预约，再停止 `pet-service`，等待其可用实例数变为 `0` 并输出注册列表。此时预约服务自身健康接口仍可访问，历史预约能够查询。脚本使用新的 `09:30` 时段提交有效预约，预期返回 `503`，并比较前后预约数量。
+
+随后恢复宠物服务，等待应用健康和实例重新注册，再使用同一组预约参数创建与查询预约，预期分别返回 `201`、`200`，预约数量增加一条。异常退出时脚本会尝试恢复已停止的宠物服务。
+
+| 状态 | 业务结果 | 预约数据变化 |
+| --- | --- | --- |
+| 宠物、医生实例正常 | 创建 201，查询 200 | 新增预约 |
+| 依赖资源不存在 | 404 | 数量保持一致 |
+| 宠物服务下线或旧地址连接失败 | 503 | 数量保持一致 |
+| 宠物实例恢复并可访问 | 创建 201，查询 200 | 新增一条预约 |
+
+SDK 连接、注册实例和应用健康分别表示不同层面的状态。SDK 连接表示应用与 Nacos 通信可用，注册实例表示注册中心当前保存的服务地址及实例状态，Actuator 通过 HTTP 报告当前应用的健康结果。宠物服务下线时，预约服务的 SDK 连接和自身健康仍可正常，但创建预约会因宠物依赖不可用返回 `503`。实例注销由服务停止生命周期和 SDK 连接变化驱动，Actuator 检查与注册操作分别处理。
+
+远端校验成功后，本地保存仍可能因时段冲突、数据库故障或进程中断失败。服务发现负责选择调用地址，本地事务负责预约保存，跨服务调用与本地写入之间仍存在部分成功的窗口。本周远端调用为查询操作，本地失败时以最终预约响应和记录为准。
+
+### 各服务独立测试
+
+从仓库根目录进入对应服务目录执行测试。
+
+```bash
+(cd services/pet-service && ../../monolith/mvnw -B -ntp test)
+
+(cd services/doctor-service && ../../monolith/mvnw -B -ntp test)
+
+(cd services/appointment-service && ../../monolith/mvnw -B -ntp test)
+```
+
+测试配置关闭 Nacos Discovery 和自动注册，使用 H2 数据库。预约服务通过模拟 DiscoveryClient 和 HTTP 响应验证实例选择、空实例、发现失败、远端错误以及原有业务规则。宠物服务 4 项、医生服务 5 项、预约服务 19 项，共 28 项测试全部通过。
+
+依赖版本对应关系参考 [Spring Cloud Alibaba 2025.1.0.0](https://github.com/alibaba/spring-cloud-alibaba/tree/2025.1.0.0)，鉴权及首次管理员初始化参考 [Nacos 官方鉴权说明](https://nacos.io/en/docs/latest/manual/admin/auth/)。
+
+### 第七周作业记录
+
+[第 07 周作业记录](docs/homework/week-07/index.md) 汇总 Nacos 部署注册、服务发现调用、健康状态与下线恢复、验证脚本四部分，包含运行命令、状态码、数据变化和十张验证截图。
+
+2026 年 11 月 5 日验证中，宠物和医生编号均为 `7`，正常创建预约 `14` 并查询成功。宠物服务下线后新请求返回 `503`，预约数量保持为 `14`。服务恢复后同一请求创建预约 `16`，数量增加到 `15`。默认脚本单独运行退出 `0`，模拟控制台连接失败退出 `7`，三个服务共 `28` 项测试全部通过。
