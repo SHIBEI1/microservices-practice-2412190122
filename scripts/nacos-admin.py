@@ -91,6 +91,7 @@ def main():
     parser.add_argument("--service", choices=SERVICES, default="pet-service")
     parser.add_argument("--state", choices=("present", "absent"), default="present")
     parser.add_argument("--timeout", type=int, default=120)
+    parser.add_argument("--count", type=int, help="等待指定数量的可用实例")
     args = parser.parse_args()
     config = settings()
     if args.action == "init":
@@ -116,14 +117,16 @@ def main():
                 print(f"  {host['ip']}:{host['port']} healthy={host['healthy']} enabled={host['enabled']}")
         return
 
+    expected = str(args.count) if args.count is not None else args.state
     deadline = time.monotonic() + args.timeout
     while time.monotonic() < deadline:
         hosts = instances(config, token, args.service, healthy_only=True)
-        if bool(hosts) == (args.state == "present"):
-            print(f"PASS {args.service} 可用实例数={len(hosts)}，预期状态={args.state}")
+        matches = len(hosts) == args.count if args.count is not None else bool(hosts) == (args.state == "present")
+        if matches:
+            print(f"PASS {args.service} 可用实例数={len(hosts)}，预期={expected}")
             return
         time.sleep(1)
-    raise RuntimeError(f"{args.service} 未在 {args.timeout} 秒内达到 {args.state} 状态")
+    raise RuntimeError(f"{args.service} 未在 {args.timeout} 秒内达到预期实例数或状态 {expected}")
 
 
 if __name__ == "__main__":

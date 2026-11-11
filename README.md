@@ -714,3 +714,52 @@ SDK 连接、注册实例和应用健康分别表示不同层面的状态。SDK 
 [第 07 周作业记录](docs/homework/week-07/index.md) 汇总 Nacos 部署注册、服务发现调用、健康状态与下线恢复、验证脚本四部分，包含运行命令、状态码、数据变化和十张验证截图。
 
 2026 年 11 月 5 日验证中，宠物和医生编号均为 `7`，正常创建预约 `14` 并查询成功。宠物服务下线后新请求返回 `503`，预约数量保持为 `14`。服务恢复后同一请求创建预约 `16`，数量增加到 `15`。默认脚本单独运行退出 `0`，模拟控制台连接失败退出 `7`，三个服务共 `28` 项测试全部通过。
+
+## 十八、macOS 本机开发与启动
+
+2026 年 11 月迁移至 Apple Silicon Mac。宿主机使用 Temurin JDK 25、Docker Desktop 和 VS Code Java 扩展；Maven 使用 `monolith/mvnw` 下载的 3.9.16。三个业务服务、三个 MySQL 数据库与 Nacos 通过 Compose 运行。
+
+首次准备时，在仓库根目录复制 `.env.example` 为 `.env`，将密码及 Nacos 鉴权占位值替换为本机凭据；真实 `.env` 已被 Git 忽略。Nacos Token 使用解码后至少 32 字节的 Base64 随机密钥。恢复脚本权限：
+
+```bash
+chmod +x monolith/mvnw scripts/smoke-test.sh
+```
+
+在 macOS 终端进入本机仓库根目录后执行，无需进入 WSL：
+
+```bash
+docker compose up -d --wait --wait-timeout 180 nacos
+python3 scripts/nacos-admin.py init
+docker compose up -d --build --wait --wait-timeout 240
+docker compose ps
+bash scripts/smoke-test.sh
+```
+
+首次初始化完成后，日常启动可直接执行 `docker compose up -d --wait --wait-timeout 240`；代码修改后加 `--build`。停止使用 `docker compose stop`，保留数据库数据卷。
+
+Nacos 控制台地址为 `http://localhost:28080/`，账号为 `.env` 中的 `NACOS_USERNAME` 和 `NACOS_PASSWORD`。宠物、医生和预约服务端口分别为 `18082`、`18083`、`18084`，健康接口均为 `/actuator/health`。尚无前端页面，业务通过 REST API 操作。
+
+独立测试不依赖运行中的 MySQL 或 Nacos，在仓库根目录分别执行：
+
+```bash
+./monolith/mvnw -B -ntp -f services/pet-service/pom.xml test
+./monolith/mvnw -B -ntp -f services/doctor-service/pom.xml test
+./monolith/mvnw -B -ntp -f services/appointment-service/pom.xml test
+```
+
+根目录 `pom.xml` 仍是早期 Java 练习，并非微服务聚合工程。旧 WSL 的本机密码、IDE 路径和 Docker 数据卷不会随源码自动迁移；本机数据库首次启动会创建新数据。
+
+2026 年 11 月 10 日 Mac 本机验证：三个服务共 28 项测试全部通过，ARM64 镜像构建成功，七个容器健康运行。真实 HTTP 验证覆盖创建、查询、冲突、确认、取消及 404；宠物服务下线时新预约返回 503 且记录数保持为 2，恢复后创建成功，记录数增加到 3。验证数据保留在本机数据卷中。
+
+## 十九、第八周服务通信与负载均衡
+
+预约服务通过 OpenFeign 按服务名查询宠物和医生，Spring Cloud LoadBalancer 从 Nacos 实例列表选择调用目标。Compose 运行两个共享数据库的宠物服务实例，副本通过容器网络接收请求。调用方、被调用方及接口路径见[服务通信与负载均衡](docs/service-communication.md)。
+
+沿用本机配置，在仓库根目录运行以下命令。
+
+```bash
+docker compose up -d --build --wait --wait-timeout 240
+bash scripts/e2e-test.sh
+```
+
+端到端脚本会创建测试预约，核对两个实例的查询日志，并验证依赖下线与恢复。11 月 11 日的验证中，六次正常预约的宠物查询平均分配至两个实例，各三次。两实例下线时返回 `503` 且预约未写入，恢复后同一请求返回 `201`。三个服务共 28 项自动化测试通过。[第 08 周作业记录](docs/homework/week-08/index.md)

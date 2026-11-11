@@ -38,10 +38,14 @@ APPOINTMENT_URL="${APPOINTMENT_BASE_URL:-http://localhost:$APPOINTMENT_PORT}"
 NACOS_CONSOLE_URL="${NACOS_CONSOLE_URL:-http://localhost:$NACOS_CONSOLE_PORT}"
 RESPONSE_FILE="$(mktemp)"
 DEPENDENCY_STOPPED=false
+PET_SERVICES=(pet-service)
+if "$DOCKER_BIN" compose ps --services --status running | grep -Fxq pet-service-replica; then
+  PET_SERVICES+=(pet-service-replica)
+fi
 
 cleanup() {
   if "$DEPENDENCY_STOPPED"; then
-    "$DOCKER_BIN" compose start pet-service >/dev/null 2>&1 || true
+    "$DOCKER_BIN" compose start "${PET_SERVICES[@]}" >/dev/null 2>&1 || true
   fi
   rm -f -- "$RESPONSE_FILE"
 }
@@ -124,7 +128,7 @@ printf 'PASS：依赖资源不存在返回404，预约数量保持 %s。\n' "$AF
 
 if "$WITH_UNAVAILABLE"; then
   DEPENDENCY_STOPPED=true
-  "$DOCKER_BIN" compose stop pet-service
+  "$DOCKER_BIN" compose stop "${PET_SERVICES[@]}"
   DOCKER_BIN="$DOCKER_BIN" python3 scripts/nacos-admin.py wait --service pet-service --state absent
   DOCKER_BIN="$DOCKER_BIN" python3 scripts/nacos-admin.py list
   check_health "$APPOINTMENT_URL"
@@ -136,7 +140,7 @@ if "$WITH_UNAVAILABLE"; then
   AFTER="$(count_appointments)"
   [[ "$BEFORE" == "$AFTER" ]] || { printf '依赖不可用时写入了本地数据\n' >&2; exit 1; }
   printf 'PASS：宠物服务不可用返回503，预约数量保持 %s。\n' "$AFTER"
-  "$DOCKER_BIN" compose start pet-service
+  "$DOCKER_BIN" compose start "${PET_SERVICES[@]}"
   RESTORED=false
   for attempt in {1..60}; do
     if curl -fsS --connect-timeout 2 --max-time 5 "$PET_URL/actuator/health" > "$RESPONSE_FILE" 2>/dev/null; then
