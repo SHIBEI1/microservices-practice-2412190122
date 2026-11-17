@@ -1,0 +1,17 @@
+FROM maven:3.9.16-eclipse-temurin-25 AS build
+WORKDIR /workspace
+COPY pom.xml ./
+COPY src ./src
+RUN --mount=type=cache,target=/root/.m2,sharing=locked mvn -B -ntp verify
+
+FROM eclipse-temurin:25-jre AS runtime
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system app \
+    && useradd --system --gid app --home-dir /app --shell /usr/sbin/nologin app
+WORKDIR /app
+COPY --from=build --chown=app:app /workspace/target/app.jar ./app.jar
+USER app
+EXPOSE 8080
+ENTRYPOINT ["java", "-jar", "/app/app.jar"]

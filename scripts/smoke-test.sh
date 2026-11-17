@@ -29,12 +29,13 @@ PORTS="$("$DOCKER_BIN" compose config --format json | python3 -c '
 import json, sys
 services = json.load(sys.stdin)["services"]
 print(" ".join(str(services[name]["ports"][0]["published"]) for name in
-               ("pet-service", "doctor-service", "appointment-service", "nacos")))
+               ("gateway-service", "nacos")))
 ')"
-read -r PET_PORT DOCTOR_PORT APPOINTMENT_PORT NACOS_CONSOLE_PORT <<< "$PORTS"
-PET_URL="${PET_BASE_URL:-http://localhost:$PET_PORT}"
-DOCTOR_URL="${DOCTOR_BASE_URL:-http://localhost:$DOCTOR_PORT}"
-APPOINTMENT_URL="${APPOINTMENT_BASE_URL:-http://localhost:$APPOINTMENT_PORT}"
+read -r GATEWAY_PORT NACOS_CONSOLE_PORT <<< "$PORTS"
+GATEWAY_URL="http://127.0.0.1:$GATEWAY_PORT"
+PET_URL="$GATEWAY_URL"
+DOCTOR_URL="$GATEWAY_URL"
+APPOINTMENT_URL="$GATEWAY_URL"
 NACOS_CONSOLE_URL="${NACOS_CONSOLE_URL:-http://localhost:$NACOS_CONSOLE_PORT}"
 RESPONSE_FILE="$(mktemp)"
 DEPENDENCY_STOPPED=false
@@ -55,7 +56,7 @@ trap 'exit 143' TERM
 
 request() {
   local expected="$1" method="$2" url="$3" body="${4:-}" actual
-  local args=(-sS --connect-timeout 5 --max-time 20 -o "$RESPONSE_FILE" -w '%{http_code}' -X "$method")
+  local args=(-H "Authorization: Bearer $AUTH_TOKEN" -sS --connect-timeout 5 --max-time 20 -o "$RESPONSE_FILE" -w '%{http_code}' -X "$method")
   if [[ -n "$body" ]]; then args+=(-H 'Content-Type: application/json' -d "$body"); fi
   if ! actual="$(curl "${args[@]}" "$url")"; then
     printf '请求失败：%s %s\n' "$method" "$url" >&2
@@ -77,7 +78,10 @@ count_appointments() {
 }
 
 check_health() {
-  request 200 GET "$1/actuator/health"
+  "$DOCKER_BIN" compose exec -T "$1" curl -fsS http://127.0.0.1:8080/actuator/health > "$RESPONSE_FILE"
+  printf '%s /actuator/health -> ' "$1"
+  cat "$RESPONSE_FILE"
+  printf '\n'
   python3 -c 'import json,sys; assert json.load(sys.stdin)["status"]=="UP"' < "$RESPONSE_FILE"
 }
 
@@ -86,9 +90,10 @@ read -r CONSOLE_STATUS CONSOLE_TARGET <<< "$CONSOLE_RESULT"
 printf 'GET %s -> HTTP %s\n' "$CONSOLE_TARGET" "$CONSOLE_STATUS"
 [[ "$CONSOLE_STATUS" == 200 ]] || { printf 'Nacos 控制台不可访问\n' >&2; exit 1; }
 
-check_health "$PET_URL"
-check_health "$DOCTOR_URL"
-check_health "$APPOINTMENT_URL"
+AUTH_TOKEN="$(DOCKER_BIN="$DOCKER_BIN" python3 scripts/test_auth.py admin)"
+check_health pet-service
+check_health doctor-service
+check_health appointment-service
 
 for task_service in pet-service doctor-service appointment-service; do
   DOCKER_BIN="$DOCKER_BIN" python3 scripts/nacos-admin.py wait --service "$task_service"
@@ -99,7 +104,7 @@ request 201 POST "$PET_URL/api/pets" '{"name":"团团","species":"猫","age":2,"
 PET_ID="$(json_id)"
 request 200 GET "$PET_URL/api/pets/$PET_ID"
 
-DOCTOR_CODE="W07$(date +%s%N)"
+DOCTOR_CODE="SMOKE-$(python3 -c 'import uuid; print(uuid.uuid4().hex[:16])')"
 request 201 POST "$DOCTOR_URL/api/doctors" "{\"code\":\"$DOCTOR_CODE\",\"name\":\"林医生\",\"department\":\"内科\",\"dayOfWeek\":\"MONDAY\",\"startTime\":\"09:00\",\"endTime\":\"17:00\",\"accepting\":true}"
 DOCTOR_ID="$(json_id)"
 
@@ -131,7 +136,7 @@ if "$WITH_UNAVAILABLE"; then
   "$DOCKER_BIN" compose stop "${PET_SERVICES[@]}"
   DOCKER_BIN="$DOCKER_BIN" python3 scripts/nacos-admin.py wait --service pet-service --state absent
   DOCKER_BIN="$DOCKER_BIN" python3 scripts/nacos-admin.py list
-  check_health "$APPOINTMENT_URL"
+  check_health appointment-service
   UNAVAILABLE_TIME="${APPOINTMENT_TIME%T*}T09:30:00"
   UNAVAILABLE_BODY="{\"petId\":$PET_ID,\"doctorId\":$DOCTOR_ID,\"appointmentTime\":\"$UNAVAILABLE_TIME\",\"reason\":\"验证服务下线与恢复\"}"
   BEFORE="$(count_appointments)"
@@ -140,20 +145,9 @@ if "$WITH_UNAVAILABLE"; then
   AFTER="$(count_appointments)"
   [[ "$BEFORE" == "$AFTER" ]] || { printf '依赖不可用时写入了本地数据\n' >&2; exit 1; }
   printf 'PASS：宠物服务不可用返回503，预约数量保持 %s。\n' "$AFTER"
-  "$DOCKER_BIN" compose start "${PET_SERVICES[@]}"
-  RESTORED=false
-  for attempt in {1..60}; do
-    if curl -fsS --connect-timeout 2 --max-time 5 "$PET_URL/actuator/health" > "$RESPONSE_FILE" 2>/dev/null; then
-      if python3 -c 'import json,sys; assert json.load(sys.stdin)["status"]=="UP"' < "$RESPONSE_FILE" 2>/dev/null; then
-        RESTORED=true
-        break
-      fi
-    fi
-    sleep 1
-  done
-  "$RESTORED" || { printf '宠物服务未恢复健康\n' >&2; exit 1; }
+  "$DOCKER_BIN" compose start --wait --wait-timeout 120 "${PET_SERVICES[@]}"
   DEPENDENCY_STOPPED=false
-  check_health "$PET_URL"
+  check_health pet-service
   DOCKER_BIN="$DOCKER_BIN" python3 scripts/nacos-admin.py wait --service pet-service
   DOCKER_BIN="$DOCKER_BIN" python3 scripts/nacos-admin.py list
   sleep 2

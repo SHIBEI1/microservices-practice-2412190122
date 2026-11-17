@@ -1,0 +1,54 @@
+server:
+  port: 8080
+spring:
+  application:
+    name: gateway-service
+  cloud:
+    nacos:
+      discovery:
+        register-enabled: false
+        server-addr: ${NACOS_SERVER_ADDR:localhost:18848}
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:}
+        namespace: ${NACOS_NAMESPACE:}
+        group: ${NACOS_GROUP:PET_HOSPITAL_GROUP}
+    loadbalancer:
+      cache:
+        enabled: false
+    gateway:
+      server:
+        webflux:
+          default-filters:
+            - RemoveRequestHeader=Authorization
+            - RemoveRequestHeader=X-User-Id
+            - RemoveRequestHeader=X-Username
+            - RemoveRequestHeader=X-Role
+            - RemoveRequestHeader=X-Roles
+            - RemoveRequestHeader=X-User-Role
+            - RemoveRequestHeader=X-User-Roles
+          routes:
+            - id: login
+              uri: lb://user-service
+              predicates:
+                - Path=/api/auth/login
+                - Method=POST
+            - id: pets
+              uri: lb://pet-service
+              predicates:
+                - Path=/api/pets,/api/pets/**
+            - id: doctors
+              uri: lb://doctor-service
+              predicates:
+                - Path=/api/doctors,/api/doctors/**
+            - id: appointments
+              uri: lb://appointment-service
+              predicates:
+                - Path=/api/appointments,/api/appointments/**
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+hospital:
+  auth:
+    jwt-secret: ${JWT_SECRET}

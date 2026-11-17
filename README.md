@@ -12,6 +12,8 @@
 
 # 宠物医院管理系统
 
+当前微服务业务入口为 `http://127.0.0.1:18081`，受保护接口需要登录获取 JWT。启动与测试账号配置见[第九周说明](#十九第九周-api-网关与认证授权)，路由及权限见[安全设计](docs/security.md)，完成情况见[第 09 周作业记录](docs/homework/week-09/index.md)。前几周章节中的独立业务端口保留为当周记录，当前 Compose 已统一经网关访问。
+
 ## 一、项目背景
 
 宠物医院在日常经营中需要管理宠物档案、主人信息、医生排班、就诊预约、病历记录和收费账单。传统的纸质登记或分散管理方式容易出现信息查询困难、预约时间冲突、病历保存不完整以及收费统计不便等问题。
@@ -727,3 +729,37 @@ bash scripts/e2e-test.sh
 ```
 
 端到端脚本会创建测试预约，核对两个实例的查询日志，并验证依赖下线与恢复。11 月 11 日的验证中，六次正常预约的宠物查询平均分配至两个实例，各三次。两实例下线时返回 `503` 且预约未写入，恢复后同一请求返回 `201`。三个服务共 28 项自动化测试通过。[第 08 周作业记录](docs/homework/week-08/index.md)
+
+## 十九、第九周 API 网关与认证授权
+
+业务 API 从网关统一访问，默认地址为 `http://127.0.0.1:18081`。通过 `GATEWAY_PORT` 可调整宿主机端口，容器内监听 `8080`。网关按 Nacos 服务名转发，公开健康检查为 `GET /actuator/health`。
+
+| 路径 | 目标服务 | 访问规则 |
+| --- | --- | --- |
+| `POST /api/auth/login` | `user-service` | 公开，提交 `username` 与 `password` 后获取 JWT |
+| `/api/pets` | `pet-service` | 普通用户或管理员可查询和新增 |
+| `/api/doctors` | `doctor-service` | 普通用户或管理员可查询，新增需要管理员 |
+| `/api/appointments` | `appointment-service` | 普通用户或管理员可查询、创建和取消，确认和完成需要管理员 |
+
+| 测试账号 | 角色 | 测试密码来源 |
+| --- | --- | --- |
+| `owner` | `USER` | 操作者设置，在运行测试时提供 `AUTH_OWNER_PASSWORD` |
+| `admin` | `ADMIN` | 操作者设置，在运行测试时提供 `AUTH_ADMIN_PASSWORD` |
+
+启动前，在项目本地 `.env` 设置 `JWT_SECRET`（例如用 `openssl rand -base64 48` 生成）及两项 BCrypt 哈希。可以运行 `htpasswd -nBC 12 owner` 和 `htpasswd -nBC 12 admin` 交互生成哈希，取冒号后的部分，分别以单引号包裹写入 `AUTH_OWNER_PASSWORD_HASH` 和 `AUTH_ADMIN_PASSWORD_HASH`。登录密码由测试操作者保管。脚本也可读取被 Git 忽略的本地 `.env.auth-test`，每行使用 `变量名=值`。
+
+在仓库根目录启动并验证。
+
+```bash
+docker compose up -d --build --wait --wait-timeout 240
+bash scripts/auth-test.sh
+bash scripts/e2e-test.sh
+```
+
+JWT 有效期为 30 分钟。受保护接口通过 `Authorization: Bearer <token>` 接收令牌，缺少或无效令牌返回 `401`，角色不满足返回 `403`。授权取决于签名校验通过的 JWT 声明，网关转发前移除身份请求头和访问令牌。三个业务服务、宠物服务副本和用户服务均不发布宿主机端口，业务服务之间继续通过 Compose 网络通信。该网络仅供受信任的服务使用，具备 Docker 管理权限的操作者可以在容器内部调用接口。当前是角色级授权，宠物和预约数据的归属校验尚未接入账号体系。
+
+### 第九周作业记录
+
+[第 09 周作业记录](docs/homework/week-09/index.md) 按 API Gateway、认证服务、网关鉴权和测试脚本四部分记录实现思路、运行命令、验证结果及八张截图。[安全设计](docs/security.md) 汇总认证流程、JWT 声明、角色权限、网关路由和下游访问边界。
+
+2026 年 11 月 17 日，认证脚本验证未登录返回 `401`、有效令牌查询返回 `200`、普通用户越权返回 `403`、管理员登记医生返回 `201`，伪造身份头及篡改签名均被拒绝，下游端口隔离检查通过，脚本退出 `0`。三个业务服务共 28 项测试通过，网关冒烟验证通过。

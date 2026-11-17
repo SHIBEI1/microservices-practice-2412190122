@@ -1,0 +1,23 @@
+server:
+  port: 8080
+spring:
+  application:
+    name: user-service
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_SERVER_ADDR:localhost:18848}
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:}
+        namespace: ${NACOS_NAMESPACE:}
+        group: ${NACOS_GROUP:PET_HOSPITAL_GROUP}
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+hospital:
+  auth:
+    jwt-secret: ${JWT_SECRET}
+    owner-password-hash: ${AUTH_OWNER_PASSWORD_HASH}
+    admin-password-hash: ${AUTH_ADMIN_PASSWORD_HASH}

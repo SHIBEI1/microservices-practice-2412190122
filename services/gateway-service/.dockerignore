@@ -1,0 +1,10 @@
+**
+!pom.xml
+!src/
+!src/**
+**/target/
+**/.env*
+**/application-local.*
+**/*Zone.Identifier*
+**/*.key
+**/*.pem

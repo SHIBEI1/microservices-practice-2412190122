@@ -12,9 +12,9 @@ services:
       NACOS_AUTH_TOKEN: ${NACOS_AUTH_TOKEN:?请设置 NACOS_AUTH_TOKEN}
       NACOS_AUTH_IDENTITY_KEY: ${NACOS_AUTH_IDENTITY_KEY:?请设置 NACOS_AUTH_IDENTITY_KEY}
       NACOS_AUTH_IDENTITY_VALUE: ${NACOS_AUTH_IDENTITY_VALUE:?请设置 NACOS_AUTH_IDENTITY_VALUE}
-      JVM_XMS: 256m
-      JVM_XMX: 512m
-      JVM_XMN: 128m
+      JVM_XMS: 128m
+      JVM_XMX: 256m
+      JVM_XMN: 64m
       TZ: Asia/Shanghai
     ports:
       - "127.0.0.1:${NACOS_CONSOLE_PORT:-28080}:8080"
@@ -80,6 +80,7 @@ services:
 
   pet-db:
     image: mysql:8.4.11
+    command: &dev-mysql-options ["--innodb-buffer-pool-size=64M", "--performance-schema=OFF", "--max-connections=40"]
     environment:
       MYSQL_DATABASE: ${PET_DATABASE:-pet_hospital_pet}
       MYSQL_USER: ${PET_DB_USERNAME:-pet_user}
@@ -106,8 +107,6 @@ services:
     image: pet-hospital-pet:week08
     build:
       context: ./services/pet-service
-    ports:
-      - "127.0.0.1:${PET_SERVICE_PORT:-18082}:8080"
     environment:
       SERVER_PORT: 8080
       DB_URL: jdbc:mysql://pet-db:3306/${PET_DATABASE:-pet_hospital_pet}?connectionTimeZone=Asia/Shanghai&characterEncoding=UTF-8&sslMode=DISABLED&allowPublicKeyRetrieval=true
@@ -136,13 +135,13 @@ services:
 
   pet-service-replica:
     <<: *pet-service
-    ports: []
     depends_on:
       pet-service:
         condition: service_healthy
 
   doctor-db:
     image: mysql:8.4.11
+    command: *dev-mysql-options
     environment:
       MYSQL_DATABASE: ${DOCTOR_DATABASE:-pet_hospital_doctor}
       MYSQL_USER: ${DOCTOR_DB_USERNAME:-doctor_user}
@@ -169,8 +168,6 @@ services:
     image: pet-hospital-doctor:week07
     build:
       context: ./services/doctor-service
-    ports:
-      - "127.0.0.1:${DOCTOR_SERVICE_PORT:-18083}:8080"
     environment:
       SERVER_PORT: 8080
       DB_URL: jdbc:mysql://doctor-db:3306/${DOCTOR_DATABASE:-pet_hospital_doctor}?connectionTimeZone=Asia/Shanghai&characterEncoding=UTF-8&sslMode=DISABLED&allowPublicKeyRetrieval=true
@@ -199,6 +196,7 @@ services:
 
   appointment-db:
     image: mysql:8.4.11
+    command: *dev-mysql-options
     environment:
       MYSQL_DATABASE: ${APPOINTMENT_DATABASE:-pet_hospital_appointment}
       MYSQL_USER: ${APPOINTMENT_DB_USERNAME:-appointment_user}
@@ -225,8 +223,6 @@ services:
     image: pet-hospital-appointment:week08
     build:
       context: ./services/appointment-service
-    ports:
-      - "127.0.0.1:${APPOINTMENT_SERVICE_PORT:-18084}:8080"
     environment:
       SERVER_PORT: 8080
       DB_URL: jdbc:mysql://appointment-db:3306/${APPOINTMENT_DATABASE:-pet_hospital_appointment}?connectionTimeZone=Asia/Shanghai&characterEncoding=UTF-8&sslMode=DISABLED&allowPublicKeyRetrieval=true
@@ -257,6 +253,57 @@ services:
       timeout: 5s
       retries: 18
       start_period: 45s
+    restart: unless-stopped
+
+  user-service:
+    image: pet-hospital-user:week09
+    build:
+      context: ./services/user-service
+    environment:
+      <<: &jwt-service-env
+        JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=60.0 -XX:+ExitOnOutOfMemoryError
+        NACOS_SERVER_ADDR: ${NACOS_SERVER_ADDR:-nacos:8848}
+        NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
+        NACOS_PASSWORD: ${NACOS_PASSWORD:?请设置 NACOS_PASSWORD}
+        NACOS_NAMESPACE: ${NACOS_NAMESPACE:-}
+        NACOS_GROUP: ${NACOS_GROUP:-PET_HOSPITAL_GROUP}
+        JWT_SECRET: ${JWT_SECRET:-}
+        TZ: Asia/Shanghai
+      AUTH_OWNER_PASSWORD_HASH: ${AUTH_OWNER_PASSWORD_HASH:-}
+      AUTH_ADMIN_PASSWORD_HASH: ${AUTH_ADMIN_PASSWORD_HASH:-}
+    depends_on:
+      nacos:
+        condition: service_healthy
+    mem_limit: 384m
+    healthcheck: &jwt-service-health
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/actuator/health | grep -q '\"status\":\"UP\"'"]
+      interval: 5s
+      timeout: 5s
+      retries: 18
+      start_period: 45s
+    restart: unless-stopped
+
+  gateway-service:
+    image: pet-hospital-gateway:week09
+    build:
+      context: ./services/gateway-service
+    ports:
+      - "127.0.0.1:${GATEWAY_PORT:-18081}:8080"
+    environment:
+      <<: *jwt-service-env
+    depends_on:
+      nacos:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+      pet-service:
+        condition: service_healthy
+      doctor-service:
+        condition: service_healthy
+      appointment-service:
+        condition: service_healthy
+    mem_limit: 384m
+    healthcheck: *jwt-service-health
     restart: unless-stopped
 
 volumes:
