@@ -19,14 +19,15 @@ import org.springframework.stereotype.Service;
 
 @Service
 class LoginService {
-    private static final long EXPIRES_IN_SECONDS = 1800;
+    private final TokenPolicy policy;
     private final BCryptPasswordEncoder passwords = new BCryptPasswordEncoder();
     private final Map<String, Account> accounts;
     private final JwtEncoder encoder;
 
     LoginService(@Value("${hospital.auth.owner-password-hash}") String ownerHash,
                  @Value("${hospital.auth.admin-password-hash}") String adminHash,
-                 @Value("${hospital.auth.jwt-secret}") String secret) {
+                 @Value("${hospital.auth.jwt-secret}") String secret, TokenPolicy policy) {
+        this.policy = policy;
         requireBcrypt(ownerHash);
         requireBcrypt(adminHash);
         accounts = Map.of("owner", new Account(ownerHash, "USER"), "admin", new Account(adminHash, "ADMIN"));
@@ -48,14 +49,15 @@ class LoginService {
             return Optional.empty();
         }
 
+        long expiresIn = policy.expiresIn();
         Instant now = Instant.now();
         JwtClaimsSet claims = JwtClaimsSet.builder()
             .issuer("pet-hospital-user-service").subject(username)
-            .audience(List.of("pet-hospital-gateway")).issuedAt(now).expiresAt(now.plusSeconds(EXPIRES_IN_SECONDS))
+            .audience(List.of("pet-hospital-gateway")).issuedAt(now).expiresAt(now.plusSeconds(expiresIn))
             .claim("roles", List.of(account.role())).build();
         String token = encoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), claims))
             .getTokenValue();
-        return Optional.of(new Token(token, "Bearer", EXPIRES_IN_SECONDS));
+        return Optional.of(new Token(token, "Bearer", expiresIn));
     }
 
     private static void requireBcrypt(String hash) {

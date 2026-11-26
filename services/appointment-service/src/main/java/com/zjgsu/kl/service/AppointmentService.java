@@ -3,6 +3,8 @@ package com.zjgsu.kl.service;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
+import com.zjgsu.kl.config.BookingPolicy;
+import org.springframework.http.HttpStatus;
 import com.zjgsu.kl.client.ParticipantClient;
 import com.zjgsu.kl.client.ParticipantClient.RemoteDoctor;
 import com.zjgsu.kl.dto.AppointmentDtos.*;
@@ -19,15 +21,20 @@ public class AppointmentService {
     private final AppointmentRepository appointments;
     private final ParticipantClient participants;
     private final Clock clock;
+    private final BookingPolicy booking;
 
-    public AppointmentService(AppointmentRepository appointments, ParticipantClient participants, Clock clock) {
+    public AppointmentService(AppointmentRepository appointments, ParticipantClient participants, Clock clock, BookingPolicy booking) {
         this.appointments = appointments;
         this.participants = participants;
         this.clock = clock;
+        this.booking = booking;
     }
 
     @Transactional
     public Response create(CreateRequest request) {
+        if (!booking.isEnabled()) {
+            throw new BusinessException(HttpStatus.SERVICE_UNAVAILABLE, "预约登记暂时关闭，请稍后重试");
+        }
         participants.requirePet(request.petId());
         RemoteDoctor doctor = participants.requireDoctor(request.doctorId());
         validateTime(doctor, request.appointmentTime());

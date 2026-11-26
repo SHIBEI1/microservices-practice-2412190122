@@ -56,6 +56,7 @@ class GatewaySecurity {
             .authorizeExchange(rules -> rules
                 .pathMatchers(HttpMethod.GET, "/actuator/health").permitAll()
                 .pathMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
+                .pathMatchers(HttpMethod.GET, "/api/appointments/config").hasRole("ADMIN")
                 .pathMatchers(HttpMethod.GET, "/api/pets", "/api/pets/*", "/api/doctors", "/api/doctors/*",
                     "/api/appointments", "/api/appointments/*").hasAnyRole("USER", "ADMIN")
                 .pathMatchers(HttpMethod.POST, "/api/pets", "/api/appointments", "/api/appointments/*/cancel")

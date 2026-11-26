@@ -224,6 +224,8 @@ services:
     build:
       context: ./services/appointment-service
     environment:
+      APP_ENV: ${APP_ENV:-dev}
+      NACOS_CONFIG_GROUP: ${NACOS_CONFIG_GROUP:-PET_HOSPITAL_CONFIG}
       SERVER_PORT: 8080
       DB_URL: jdbc:mysql://appointment-db:3306/${APPOINTMENT_DATABASE:-pet_hospital_appointment}?connectionTimeZone=Asia/Shanghai&characterEncoding=UTF-8&sslMode=DISABLED&allowPublicKeyRetrieval=true
       DB_USERNAME: ${APPOINTMENT_DB_USERNAME:-appointment_user}
@@ -261,6 +263,8 @@ services:
       context: ./services/user-service
     environment:
       <<: &jwt-service-env
+        APP_ENV: ${APP_ENV:-dev}
+        NACOS_CONFIG_GROUP: ${NACOS_CONFIG_GROUP:-PET_HOSPITAL_CONFIG}
         JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=60.0 -XX:+ExitOnOutOfMemoryError
         NACOS_SERVER_ADDR: ${NACOS_SERVER_ADDR:-nacos:8848}
         NACOS_USERNAME: ${NACOS_USERNAME:-nacos}

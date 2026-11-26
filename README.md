@@ -12,7 +12,7 @@
 
 # 宠物医院管理系统
 
-当前微服务业务入口为 `http://127.0.0.1:18081`，受保护接口需要登录获取 JWT。启动与测试账号配置见[第九周说明](#十九第九周-api-网关与认证授权)，路由及权限见[安全设计](docs/security.md)，完成情况见[第 09 周作业记录](docs/homework/week-09/index.md)。前几周章节中的独立业务端口保留为当周记录，当前 Compose 已统一经网关访问。
+当前微服务业务入口为 `http://127.0.0.1:18081`，受保护接口需要登录获取 JWT。启动与测试账号配置见[第九周说明](#十九第九周-api-网关与认证授权)，路由及权限见[安全设计](docs/security.md)，完成情况见[第 09 周作业记录](docs/homework/week-09/index.md)。前几周章节中的独立业务端口保留为当周记录，当前 Compose 已统一经网关访问。首次启动当前版本前，还需按[第十周说明](#二十第十周-nacos-配置中心)发布 Nacos 配置；本周完成情况见[第 10 周作业记录](docs/homework/week-10/index.md)。
 
 ## 一、项目背景
 
@@ -763,3 +763,47 @@ JWT 有效期为 30 分钟。受保护接口通过 `Authorization: Bearer <token
 [第 09 周作业记录](docs/homework/week-09/index.md) 按 API Gateway、认证服务、网关鉴权和测试脚本四部分记录实现思路、运行命令、验证结果及八张截图。[安全设计](docs/security.md) 汇总认证流程、JWT 声明、角色权限、网关路由和下游访问边界。
 
 2026 年 11 月 17 日，认证脚本验证未登录返回 `401`、有效令牌查询返回 `200`、普通用户越权返回 `403`、管理员登记医生返回 `201`，伪造身份头及篡改签名均被拒绝，下游端口隔离检查通过，脚本退出 `0`。三个业务服务共 28 项测试通过，网关冒烟验证通过。
+
+## 二十、第十周 Nacos 配置中心
+
+预约服务和用户服务接入 Nacos Config，配置示例位于 `configs/nacos/`。`APP_ENV` 选择 `dev`、`test` 或 `prod`，默认 `dev`；`NACOS_CONFIG_GROUP` 默认为 `PET_HOSPITAL_CONFIG`。Data ID、配置边界和动态验证见[配置说明](docs/configuration.md)。
+
+本地 `.env` 沿用数据库、Nacos 与 JWT 凭据，可参考 `.env.example` 补充上述两个非敏感变量。真实密码和密钥仅写入已被 Git 忽略的本地文件，不写入远程配置示例。
+
+### 本地环境变量设置
+
+首次使用时从模板建立本地 `.env`，已有文件保留原内容。
+
+```bash
+test -f .env || cp .env.example .env
+```
+
+在本地编辑 `.env`，填写数据库与 Nacos 凭据、JWT 签名密钥和测试账号 BCrypt 哈希，具体变量见模板及上一节认证配置。新增的两个非敏感变量如下。
+
+```dotenv
+APP_ENV=dev
+NACOS_CONFIG_GROUP=PET_HOSPITAL_CONFIG
+```
+
+Compose 自动读取根目录 `.env` 并注入服务，无需将文件内容输出到终端。切换配置环境时调整 `APP_ENV`，先发布对应 Data ID，再重新创建相关服务；并行部署另一套完整业务环境还需隔离数据库、项目名、端口及服务发现分组。验证脚本另从本地环境变量或 `.env.auth-test` 读取 `AUTH_OWNER_PASSWORD` 和 `AUTH_ADMIN_PASSWORD`，这两个文件不提交到 Git。
+
+### 配置发布与验证
+
+在启动应用前发布配置，再启动服务并验证。
+
+```bash
+docker compose up -d --wait --wait-timeout 180 nacos
+python3 scripts/nacos-admin.py init
+python3 scripts/nacos-config.py --env dev
+python3 scripts/nacos-config.py --env test
+docker compose up -d --build --wait --wait-timeout 240
+bash scripts/config-test.sh
+```
+
+发布脚本默认保留已有配置，使用 `--overwrite` 才会以示例覆盖。验证脚本修改并恢复 dev 预约开关，检查真实业务响应与进程启动时间，并启动临时 test 用户服务验证同一镜像读取不同环境的 JWT 有效期。测试完成或异常结束时恢复原配置并清理临时实例。
+
+### 第十周作业记录
+
+[第 10 周作业记录](docs/homework/week-10/index.md) 按配置中心、多环境配置、动态配置验证和安全配置四部分记录实现思路、运行命令、验证结果及七张截图。[配置说明](docs/configuration.md) 列出六个 Data ID、Group、用途和发布步骤。
+
+2026 年 11 月 26 日，实际验证 dev/test 用户服务分别读取 1800 秒和 300 秒的 JWT 有效期。关闭预约开关后创建请求返回 `503`，预约数保持不变；恢复后缺失宠物请求返回 `404`，三次 JVM 启动时间一致。配置验证结束后原始配置已恢复、临时 test 实例已清理，预约服务 20 项测试及鉴权、冒烟、端到端验证均通过。

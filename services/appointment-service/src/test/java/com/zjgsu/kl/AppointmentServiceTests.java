@@ -44,6 +44,8 @@ class AppointmentServiceTests {
     @Autowired MockMvc mvc;
     @Autowired AppointmentRepository repository;
     @Autowired MutableClock clock;
+    @Autowired org.springframework.core.env.ConfigurableEnvironment environment;
+    @Autowired org.springframework.cloud.context.scope.refresh.RefreshScope refreshScope;
 
     @BeforeEach
     void prepare() {
@@ -80,6 +82,30 @@ class AppointmentServiceTests {
         String response = create(11, 21, "2030-01-07T10:00:00").andExpect(status().isCreated())
             .andExpect(header().exists("Location")).andReturn().getResponse().getContentAsString();
         return ((Number) JsonPath.read(response, "$.id")).longValue();
+    }
+
+    @Test
+    void closingBookingRejectsBeforeRemoteCallsAndRefreshRestoresPolicy() throws Exception {
+        var values = new java.util.HashMap<String, Object>();
+        values.put("hospital.booking.enabled", "false");
+        var source = new org.springframework.core.env.MapPropertySource("booking-test", values);
+        environment.getPropertySources().addFirst(source);
+        try {
+            refreshScope.refreshAll();
+            long count = repository.count();
+            create(11, 21, "2030-01-07T10:00:00").andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.detail").value("预约登记暂时关闭，请稍后重试"));
+            assertEquals(count, repository.count());
+            verifyNoInteractions(pets, doctors);
+            values.put("hospital.booking.enabled", "true");
+            refreshScope.refreshAll();
+            pet(11);
+            doctor(21);
+            create();
+        } finally {
+            environment.getPropertySources().remove("booking-test");
+            refreshScope.refreshAll();
+        }
     }
 
     @Test
